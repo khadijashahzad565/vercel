@@ -14,48 +14,83 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase();
 
-// Assuming you have a way to determine if the user is admin
-let isAdmin = false; // Replace with actual logic to determine if the user is an admin (e.g., after login)
+// Function to dynamically determine if the user is admin
+function checkAdminStatus() {
+  return new Promise((resolve, reject) => {
+    const userEmail = sessionStorage.getItem("userEmail"); // Assume the user's email is stored after login
+    if (!userEmail) {
+      resolve(false); // Default to non-admin if no email is found
+      return;
+    }
 
-// Example: For testing, you can set this to `true` or `false`
-isAdmin = true; // Set to false to simulate a non-admin user
+    const adminEmailRef = ref(db, "Admins");
+    get(adminEmailRef)
+      .then((snapshot) => {
+        if (snapshot.exists()) {
+          const adminEmails = Object.values(snapshot.val());
+          resolve(adminEmails.includes(userEmail));
+        } else {
+          resolve(false);
+        }
+      })
+      .catch((error) => {
+        console.error("Error fetching admin data:", error);
+        reject(error);
+      });
+  });
+}
 
+// Display Books
 function displayBooks() {
-  const bookTable = document.getElementById('book-table');
+  const bookTable = document.getElementById("book-table");
   const dbRef = ref(db, "Books");
 
-  get(dbRef).then((snapshot) => {
-    if (snapshot.exists()) {
-      const books = snapshot.val();
-      bookTable.innerHTML = `
-        <tr>
-          <th>Book Name</th>
-          <th>ISBN</th>
-          <th>Genre</th>
-          <th>Author</th>
-          <th>Actions</th>
-        </tr>
-      `;
-      
-      Object.keys(books).forEach((key) => {
-        const book = books[key];
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${book.BookName}</td>
-          <td>${book.ISBN}</td>
-          <td>${book.Genre}</td>
-          <td>${book.Author}</td>
-          <td>
-            <button onclick="editBook('${key}')">Edit</button>
-            <button onclick="deleteBook('${key}')">Delete</button>
-          </td>
+  get(dbRef)
+    .then((snapshot) => {
+      if (snapshot.exists()) {
+        const books = snapshot.val();
+        bookTable.innerHTML = `
+          <thead class="table-dark">
+            <tr>
+              <th scope="col">Book Name</th>
+              <th scope="col">ISBN</th>
+              <th scope="col">Genre</th>
+              <th scope="col">Author</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+          </tbody>
         `;
-        bookTable.appendChild(row);
-      });
-    }
-  }).catch((error) => {
-    console.error("Error fetching data:", error);
-  });
+
+        const tbody = bookTable.querySelector("tbody");
+
+        Object.keys(books).forEach((key) => {
+          const book = books[key];
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${book.BookName}</td>
+            <td>${book.ISBN}</td>
+            <td>${book.Genre}</td>
+            <td>${book.Author}</td>
+            <td>
+              <button class="btn btn-warning btn-sm me-2" onclick="editBook('${key}')">Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteBook('${key}')">Delete</button>
+            </td>
+          `;
+          tbody.appendChild(row);
+        });
+      } else {
+        bookTable.innerHTML = `
+          <div class="alert alert-info" role="alert">
+            No books available at the moment.
+          </div>
+        `;
+      }
+    })
+    .catch((error) => {
+      console.error("Error fetching data:", error);
+    });
 }
 
 // Edit Book
@@ -64,23 +99,25 @@ window.editBook = function (key) {
 };
 
 // Delete Book (Admin Only)
-window.deleteBook = function (key) {
-  if (isAdmin) {
+window.deleteBook = async function (key) {
+  try {
+    // Check admin status before allowing deletion
+    const isAdmin = await checkAdminStatus(); 
+    if (!isAdmin) {
+      alert("Only admin has access to delete books.");
+      return; // Exit if not an admin
+    }
+
     if (confirm("Are you sure you want to delete this book?")) {
       const bookRef = ref(db, `Books/${key}`);
-      remove(bookRef)
-        .then(() => {
-          alert("Book deleted successfully.");
-          console.log(`Book with key ${key} deleted.`);
-          displayBooks();  // Refresh the list of books
-        })
-        .catch((error) => {
-          console.error("Error deleting book:", error);
-          alert("An error occurred. Please try again.");
-        });
+      await remove(bookRef); // Remove the book from the database
+      alert("Book deleted successfully.");
+      displayBooks(); // Refresh the displayed books
     }
-  } else {
-    alert("Only admin has access to delete books.");
+  } catch (error) {
+    // Unified error handling
+    console.error("An error occurred:", error);
+    alert("An error occurred. Please try again.");
   }
 };
 
